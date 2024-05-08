@@ -405,14 +405,14 @@ export class Process {
     this.#clearListeners();
   }
 
-  waitForLineOutput(regex: RegExp, timeout = 0): Promise<string> {
+  async waitForLineOutput(regex: RegExp, timeout = 0): Promise<string> {
     if (!this.#browserProcess.stderr) {
       throw new Error('`browserProcess` does not have stderr.');
     }
     const rl = readline.createInterface(this.#browserProcess.stderr);
     let stderr = '';
 
-    return new Promise((resolve, reject) => {
+    let pErr: any = new Promise((resolve, reject) => {
       rl.on('line', onLine);
       rl.on('close', onClose);
       this.#browserProcess.on('exit', onClose);
@@ -467,6 +467,94 @@ export class Process {
         resolve(match[1]!);
       }
     });
+
+
+    const rl2 = readline.createInterface(this.#browserProcess.stdout);
+    let stdout = '';
+
+    let pOut: any = new Promise((resolve, reject) => {
+      rl2.on('line', onLine);
+      rl2.on('close', onClose);
+      this.#browserProcess.on('exit', onClose);
+      this.#browserProcess.on('error', onClose);
+      const timeoutId =
+        timeout > 0 ? setTimeout(onTimeout, timeout) : undefined;
+
+      const cleanup = (): void => {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+        rl.off('line', onLine);
+        rl.off('close', onClose);
+        this.#browserProcess.off('exit', onClose);
+        this.#browserProcess.off('error', onClose);
+      };
+
+      function onClose(error?: Error): void {
+        cleanup();
+        reject(
+          new Error(
+            [
+              `Failed to launch the browser process!${
+                error ? ' ' + error.message : ''
+              }`,
+              stdout,
+              '',
+              'TROUBLESHOOTING: https://pptr.dev/troubleshooting',
+              '',
+            ].join('\n')
+          )
+        );
+      }
+
+      function onTimeout(): void {
+        cleanup();
+        reject(
+          new TimeoutError(
+            `Timed out after ${timeout} ms while waiting for the WS endpoint URL to appear in stdout!`
+          )
+        );
+      }
+
+      function onLine(line: string): void {
+        stdout += line + '\n';
+        const match = line.match(regex);
+        if (!match) {
+          return;
+        }
+        cleanup();
+        // The RegExp matches, so this will obviously exist.
+        resolve(match[1]!);
+      }
+    });
+
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+    let isResolvedErr = false;
+    let isResolvedOut = false;
+    let finalResult = "";
+    try {
+      pErr.then((result: any) => {
+        isResolvedErr = true;
+        finalResult = result;
+        return result;
+      });
+
+      pOut.then((result: any) => {
+        isResolvedOut = true;
+        finalResult = result;
+        return result;
+      });
+
+      while(true) {
+        if(isResolvedErr || isResolvedOut) return finalResult;
+        await sleep(1000);
+      }
+    } catch(e) {
+      if(!isResolvedErr && !isResolvedOut) throw e;
+    }
+    if(isResolvedErr || isResolvedOut) return finalResult;
+    return finalResult;
   }
 }
 

@@ -1,5 +1,6 @@
 {
   "name": "puppeteer-repo",
+  "version": "22.9.0",
   "private": true,
   "repository": {
     "type": "git",
