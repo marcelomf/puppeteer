@@ -468,6 +468,9 @@ export class Process {
       }
     });
 
+    if (!this.#browserProcess.stdout) {
+      throw new Error('`browserProcess` does not have stdout.');
+    }
 
     const rl2 = readline.createInterface(this.#browserProcess.stdout);
     let stdout = '';
